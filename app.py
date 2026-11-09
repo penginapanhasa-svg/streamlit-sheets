@@ -89,26 +89,23 @@ def record_search_to_sheets(keyword):
     pass
 
 
-# ==================== 4. FUNGSI DATA & FORMAT 3 DIGIT KODE ====================
+# ==================== 4. FUNGSI DATA & FORMAT 3 DIGIT ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
   if os.path.exists(cache_filename):
     try:
-      # dtype=str memastikan angka dengan nol di depan (seperti '001') tidak terkonversi ke int (1)
       return pd.read_csv(cache_filename, dtype=str)
     except Exception:
       pass
 
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
-  df = pd.DataFrame(records)
-  df = df.astype(str)  # Simpan sebagai string
+  df = pd.DataFrame(records).astype(str)
   df.to_csv(cache_filename, index=False)
   return df
 
 
 def format_code_columns(df):
-  """Memastikan 'Kode Komoditas' dan 'Kode Kualitas' selalu 3 digit (contoh: '001', '012', '123')."""
   code_cols = ["Kode Komoditas", "Kode Kualitas"]
   for col in code_cols:
     if col in df.columns:
@@ -119,7 +116,10 @@ def format_code_columns(df):
           .apply(
               lambda x: (
                   x.split(".")[0].zfill(3)
-                  if (x.split(".")[0].isdigit() and len(x.split(".")[0]) <= 3)
+                  if (
+                      x.split(".")[0].isdigit()
+                      and len(x.split(".")[0]) <= 3
+                  )
                   else x
               )
           )
@@ -168,7 +168,7 @@ with tab1:
   st.subheader("📋 Pencarian Komoditas")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
-    df = format_code_columns(df)  # Format 3 digit kode
+    df = format_code_columns(df)
     df = arrange_initial_columns(df)
 
     top_logs = get_top_searches_from_sheets(5)
@@ -219,7 +219,7 @@ with tab2:
     df_pemetaan = load_data_with_file_cache(
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
-    df_pemetaan = format_code_columns(df_pemetaan)  # Format 3 digit kode
+    df_pemetaan = format_code_columns(df_pemetaan)
     df_pemetaan = arrange_initial_columns(df_pemetaan)
 
     if not df_pemetaan.empty:
@@ -228,65 +228,79 @@ with tab2:
           "Nama Komoditas",
           "Barang Utama",
           "Komoditas",
+          "Id",
+          "ID",
+          "id",
       ]
+      # Perbaikan penentuan kolom induk agar selalu mengembalikan 1 nama kolom tunggal (string)
       col_induk = next(
           (c for c in candidates if c in df_pemetaan.columns),
-          df_pemetaan.columns,
-      )
-
-      opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
-          [
-              str(x)
-              for x in df_pemetaan[col_induk].dropna().unique()
-              if str(x).strip() != ""
-          ]
-      )
-
-      col_filter1, col_filter2 = st.columns(2)
-
-      with col_filter1:
-        pilihan_induk = st.selectbox(
-            "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
-        )
-
-      if pilihan_induk != "-- Tampilkan Semua Barang --":
-        record_search_to_sheets(pilihan_induk)
-
-      filtered_pemetaan = df_pemetaan.copy()
-      if pilihan_induk != "-- Tampilkan Semua Barang --":
-        filtered_pemetaan = filtered_pemetaan[
-            filtered_pemetaan[col_induk].astype(str) == pilihan_induk
-        ]
-
-      col_kat = next(
           (
-              col
-              for col in ["Kategori Relasi", "Kategori"]
-              if col in df_pemetaan.columns
+              df_pemetaan.columns[0]
+              if not df_pemetaan.columns.empty
+              else None
           ),
-          None,
       )
-      if col_kat:
-        opsi_kat = ["-- Semua Kategori --"] + sorted(
+
+      if col_induk and col_induk in df_pemetaan.columns:
+        opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
             [
                 str(x)
-                for x in filtered_pemetaan[col_kat].dropna().unique()
+                for x in df_pemetaan[col_induk].dropna().unique()
                 if str(x).strip() != ""
             ]
         )
-        with col_filter2:
-          pilihan_kat = st.selectbox("🏷️ Filter Kategori Relasi:", opsi_kat)
 
-        if pilihan_kat != "-- Semua Kategori --":
+        col_filter1, col_filter2 = st.columns(2)
+
+        with col_filter1:
+          pilihan_induk = st.selectbox(
+              "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
+          )
+
+        if pilihan_induk != "-- Tampilkan Semua Barang --":
+          record_search_to_sheets(pilihan_induk)
+
+        filtered_pemetaan = df_pemetaan.copy()
+        if pilihan_induk != "-- Tampilkan Semua Barang --":
           filtered_pemetaan = filtered_pemetaan[
-              filtered_pemetaan[col_kat].astype(str) == pilihan_kat
+              filtered_pemetaan[col_induk].astype(str) == pilihan_induk
           ]
 
-      st.write(
-          f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran turunan"
-          " yang sesuai:"
-      )
-      st.dataframe(filtered_pemetaan, use_container_width=True)
+        col_kat = next(
+            (
+                col
+                for col in ["Kategori Relasi", "Kategori"]
+                if col in df_pemetaan.columns
+            ),
+            None,
+        )
+        if col_kat:
+          opsi_kat = ["-- Semua Kategori --"] + sorted(
+              [
+                  str(x)
+                  for x in filtered_pemetaan[col_kat].dropna().unique()
+                  if str(x).strip() != ""
+              ]
+          )
+          with col_filter2:
+            pilihan_kat = st.selectbox("🏷️ Filter Kategori Relasi:", opsi_kat)
+
+          if pilihan_kat != "-- Semua Kategori --":
+            filtered_pemetaan = filtered_pemetaan[
+                filtered_pemetaan[col_kat].astype(str) == pilihan_kat
+            ]
+
+        st.write(
+            f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran"
+            " turunan yang sesuai:"
+        )
+        st.dataframe(filtered_pemetaan, use_container_width=True)
+
+      else:
+        st.warning(
+            "Kolom utama tidak ditemukan pada worksheet 'Database_Pemetaan'."
+        )
 
     else:
       st.warning("Worksheet 'Database_Pemetaan' masih kosong.")
