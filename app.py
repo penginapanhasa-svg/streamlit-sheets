@@ -1,8 +1,9 @@
+import os
 import gspread
 import pandas as pd
 import streamlit as st
 
-# 1. Autentikasi Google Sheets API (Otomatis & Aman untuk Cloud & Lokal)
+# 1. Autentikasi Google Sheets API (Otomatis: Cloud vs Lokal)
 try:
   client = gspread.service_account_from_dict(
       dict(st.secrets["gcp_service_account"])
@@ -14,17 +15,41 @@ except Exception:
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
 
-# 3. Cache Data berdasarkan Nama Worksheet (10 menit)
-@st.cache_data(ttl=600)
-def load_data(sheet_name="Database"):
+# 3. Fungsi Membaca Data dengan File Cache (.csv)
+@st.cache_data(ttl=3600)  # Simpan di memori RAM selama 1 jam (3600 detik)
+def load_data_with_file_cache(sheet_name, cache_filename):
+  # Jika berkas CSV lokal sudah ada, baca dari file lokal (Instan & Tanpa Internet)
+  if os.path.exists(cache_filename):
+    try:
+      return pd.read_csv(cache_filename)
+    except Exception:
+      pass  # Jika berkas rusak, beralih mengambil ulang dari Google Sheets
+
+  # Jika berkas cache belum ada, unduh dari Google Sheets API
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
-  return pd.DataFrame(records)
+  df = pd.DataFrame(records)
+
+  # Simpan hasil unduhan ke berkas CSV lokal
+  df.to_csv(cache_filename, index=False)
+  return df
 
 
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
-# 4. Membuat Multi-Tab Tampilan
+# 4. Tombol Refresh Data (Hapus Cache RAM & Berkas CSV)
+col1, col2 = st.columns([3, 1])
+with col2:
+  if st.button("🔄 Refresh Data"):
+    if os.path.exists("cache_database.csv"):
+      os.remove("cache_database.csv")
+    if os.path.exists("cache_pemetaan.csv"):
+      os.remove("cache_pemetaan.csv")
+    st.cache_data.clear()
+    st.success("Cache berhasil dibersihkan!")
+    st.rerun()
+
+# 5. Multi-Tab Tampilan
 tab1, tab2 = st.tabs([
     "🔍 Database Utama",
     "🚗 Pemetaan Pengeluaran Turunan",
@@ -34,8 +59,9 @@ tab1, tab2 = st.tabs([
 with tab1:
   st.subheader("📋 Pencarian Database Utama ('Database')")
   try:
-    df = load_data("Database")
+    df = load_data_with_file_cache("Database", "cache_database.csv")
 
+    # Form Pencarian Cepat
     with st.form(key="search_form"):
       keyword = st.text_input(
           "Ketik kata kunci atau kode (tekan Enter atau klik Cari):",
@@ -60,7 +86,7 @@ with tab1:
   except Exception as e:
     st.error(f"Gagal memuat data dari worksheet 'Database': {e}")
 
-# ==================== TAB 2: DATABASE PEMETAAN (FILTER DROPDOWN) ====================
+# ==================== TAB 2: DATABASE PEMETAAN ====================
 with tab2:
   st.subheader("💡 Pemetaan Pengeluaran Turunan ('Database_Pemetaan')")
   st.caption(
@@ -69,7 +95,9 @@ with tab2:
   )
 
   try:
-    df_pemetaan = load_data("Database_Pemetaan")
+    df_pemetaan = load_data_with_file_cache(
+        "Database_Pemetaan", "cache_pemetaan.csv"
+    )
 
     if not df_pemetaan.empty:
       # Menentukan nama kolom utama (Komoditas Induk / Barang Utama)
@@ -79,7 +107,7 @@ with tab2:
           else df_pemetaan.columns[0]
       )
 
-      # Mengambil daftar barang unik dari spreadsheet untuk isi Dropdown
+      # Mengambil daftar barang unik dari data cache
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
           [
               str(x)
@@ -90,20 +118,19 @@ with tab2:
 
       col_filter1, col_filter2 = st.columns(2)
 
-      # 1. Filter Dropdown Utama: Komoditas Induk
+      # 1. Filter Dropdown Utama
       with col_filter1:
         pilihan_induk = st.selectbox(
             "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
         )
 
-      # Melakukan penyaringan awal berdasarkan Pilihan Induk
       filtered_pemetaan = df_pemetaan.copy()
       if pilihan_induk != "-- Tampilkan Semua Barang --":
         filtered_pemetaan = filtered_pemetaan[
             filtered_pemetaan[col_induk].astype(str) == pilihan_induk
         ]
 
-      # 2. Filter Dropdown Sekunder: Kategori Relasi (jika kolom tersebut ada di sheet)
+      # 2. Filter Dropdown Sekunder (Kategori Relasi)
       col_kat = next(
           (
               col
@@ -128,7 +155,6 @@ with tab2:
               filtered_pemetaan[col_kat].astype(str) == pilihan_kat
           ]
 
-      # Tampilkan Hasil Pemetaan Terfilter
       st.write(
           f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran turunan"
           " yang sesuai:"
