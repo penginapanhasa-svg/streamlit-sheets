@@ -6,7 +6,6 @@ import pandas as pd
 import streamlit as st
 
 # ==================== 1. KUSTOMISASI TAMPILAN (CSS) ====================
-# Menyembunyikan Header, Footer, Menu, Deploy Button, Manage App, & Badge Streamlit
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -35,10 +34,9 @@ except Exception:
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
 
-# ==================== 3. SYSTEM LOG & DATABASE FREKUENSI PENCARIAN ====================
+# ==================== 3. LOGGING FREKUENSI PENCARIAN ====================
 @st.cache_data(ttl=60)
 def get_top_searches_from_sheets(top_n=10):
-  """Membaca daftar kata kunci dan frekuensi pencarian dari tab 'Log_Pencarian'."""
   try:
     sh = client.open_by_url(spreadsheet_url)
     ws = sh.worksheet("Log_Pencarian")
@@ -56,7 +54,6 @@ def get_top_searches_from_sheets(top_n=10):
 
 
 def record_search_to_sheets(keyword):
-  """Mencatat kata kunci dan mengupdate akumulasi jumlah pencarian di Google Sheets."""
   if not keyword or len(str(keyword).strip()) < 2:
     return
   item = str(keyword).strip().title()
@@ -92,25 +89,45 @@ def record_search_to_sheets(keyword):
     pass
 
 
-# ==================== 4. FUNGSI DATA CACHE & PENATAAN KOLOM ====================
+# ==================== 4. FUNGSI DATA & FORMAT 3 DIGIT KODE ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
-  """Membaca data dari cache CSV lokal jika ada, jika belum ada unduh dari Google Sheets."""
   if os.path.exists(cache_filename):
     try:
-      return pd.read_csv(cache_filename)
+      # dtype=str memastikan angka dengan nol di depan (seperti '001') tidak terkonversi ke int (1)
+      return pd.read_csv(cache_filename, dtype=str)
     except Exception:
       pass
 
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
   df = pd.DataFrame(records)
+  df = df.astype(str)  # Simpan sebagai string
   df.to_csv(cache_filename, index=False)
   return df
 
 
+def format_code_columns(df):
+  """Memastikan 'Kode Komoditas' dan 'Kode Kualitas' selalu 3 digit (contoh: '001', '012', '123')."""
+  code_cols = ["Kode Komoditas", "Kode Kualitas"]
+  for col in code_cols:
+    if col in df.columns:
+      df[col] = (
+          df[col]
+          .astype(str)
+          .str.strip()
+          .apply(
+              lambda x: (
+                  x.split(".")[0].zfill(3)
+                  if (x.split(".")[0].isdigit() and len(x.split(".")[0]) <= 3)
+                  else x
+              )
+          )
+      )
+  return df
+
+
 def arrange_initial_columns(df):
-  """Menempatkan kolom 'Id' (atau ID/id) dan identitas utama di posisi paling kiri tabel."""
   priority_cols = [
       "Id",
       "ID",
@@ -127,7 +144,7 @@ def arrange_initial_columns(df):
 
 
 # ==================== 5. JUDUL UTAMA & REFRESH DATA ====================
-st.title("Data Komoditas Konsumsi Rumah Tangga")
+st.title("📊 Data Komoditas Konsumsi Rumah Tangga")
 
 col1, col2 = st.columns(2)
 with col2:
@@ -146,14 +163,14 @@ tab1, tab2 = st.tabs([
     "Pemetaan Pengeluaran Turunan",
 ])
 
-# -------------------- TAB 1: DATABASE UTAMA --------------------
+# -------------------- TAB 1: DATABASE KOMODITAS --------------------
 with tab1:
   st.subheader("📋 Pencarian Komoditas")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
-    df = arrange_initial_columns(df)  # Penataan kolom utama (Id berada di paling kiri)
+    df = format_code_columns(df)  # Format 3 digit kode
+    df = arrange_initial_columns(df)
 
-    # Menampilkan Top Komoditas Terpopuler beserta Jumlah Pencariannya
     top_logs = get_top_searches_from_sheets(5)
     if top_logs:
       st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
@@ -190,7 +207,7 @@ with tab1:
   except Exception as e:
     st.error(f"Gagal memuat data dari worksheet 'Database': {e}")
 
-# -------------------- TAB 2: DATABASE PEMETAAN --------------------
+# -------------------- TAB 2: PEMETAAN PENGELUARAN TURUNAN --------------------
 with tab2:
   st.subheader("💡 Pemetaan Pengeluaran Turunan")
   st.caption(
@@ -202,9 +219,8 @@ with tab2:
     df_pemetaan = load_data_with_file_cache(
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
-    df_pemetaan = arrange_initial_columns(
-        df_pemetaan
-    )  # Penataan kolom utama (Id berada di paling kiri)
+    df_pemetaan = format_code_columns(df_pemetaan)  # Format 3 digit kode
+    df_pemetaan = arrange_initial_columns(df_pemetaan)
 
     if not df_pemetaan.empty:
       candidates = [
@@ -215,7 +231,7 @@ with tab2:
       ]
       col_induk = next(
           (c for c in candidates if c in df_pemetaan.columns),
-          df_pemetaan.columns[0],
+          df_pemetaan.columns,
       )
 
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
