@@ -1,11 +1,12 @@
+from datetime import datetime
 import json
 import os
-from datetime import datetime
 import gspread
 import pandas as pd
 import streamlit as st
 
 # ==================== 1. KUSTOMISASI TAMPILAN (CSS) ====================
+# Menyembunyikan Header, Footer, Menu, Deploy Button, Manage App, & Badge Streamlit
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -37,6 +38,7 @@ spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G
 # ==================== 3. SYSTEM LOG & DATABASE FREKUENSI PENCARIAN ====================
 @st.cache_data(ttl=60)
 def get_top_searches_from_sheets(top_n=10):
+  """Membaca daftar kata kunci dan frekuensi pencarian dari tab 'Log_Pencarian'."""
   try:
     sh = client.open_by_url(spreadsheet_url)
     ws = sh.worksheet("Log_Pencarian")
@@ -54,6 +56,7 @@ def get_top_searches_from_sheets(top_n=10):
 
 
 def record_search_to_sheets(keyword):
+  """Mencatat kata kunci dan mengupdate akumulasi jumlah pencarian di Google Sheets."""
   if not keyword or len(str(keyword).strip()) < 2:
     return
   item = str(keyword).strip().title()
@@ -89,9 +92,10 @@ def record_search_to_sheets(keyword):
     pass
 
 
-# ==================== 4. FUNGSI DATA CACHE & FORMAT KOLOM ====================
+# ==================== 4. FUNGSI DATA CACHE & PENATAAN KOLOM ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
+  """Membaca data dari cache CSV lokal jika ada, jika belum ada unduh dari Google Sheets."""
   if os.path.exists(cache_filename):
     try:
       return pd.read_csv(cache_filename)
@@ -106,7 +110,11 @@ def load_data_with_file_cache(sheet_name, cache_filename):
 
 
 def arrange_initial_columns(df):
+  """Menempatkan kolom 'Id' (atau ID/id) dan identitas utama di posisi paling kiri tabel."""
   priority_cols = [
+      "Id",
+      "ID",
+      "id",
       "Kode Lengkap",
       "Kode Komoditas",
       "Nama Komoditas",
@@ -143,8 +151,9 @@ with tab1:
   st.subheader("📋 Pencarian Database Utama ('Database')")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
-    df = arrange_initial_columns(df)
+    df = arrange_initial_columns(df)  # Penataan kolom utama (Id berada di paling kiri)
 
+    # Menampilkan Top Komoditas Terpopuler beserta Jumlah Pencariannya
     top_logs = get_top_searches_from_sheets(5)
     if top_logs:
       st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
@@ -193,10 +202,11 @@ with tab2:
     df_pemetaan = load_data_with_file_cache(
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
-    df_pemetaan = arrange_initial_columns(df_pemetaan)
+    df_pemetaan = arrange_initial_columns(
+        df_pemetaan
+    )  # Penataan kolom utama (Id berada di paling kiri)
 
     if not df_pemetaan.empty:
-      # Deteksi nama kolom acuan komoditas induk secara aman (selalu mengembalikan 1 string nama kolom)
       candidates = [
           "Komoditas Induk",
           "Nama Komoditas",
