@@ -1,10 +1,10 @@
+import json
 import os
 import gspread
 import pandas as pd
 import streamlit as st
 
 # ==================== 1. KUSTOMISASI TAMPILAN (CSS) ====================
-# Menyembunyikan Header, Footer, Menu, Deploy Button, Manage App, & Badge Streamlit
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -32,11 +32,53 @@ except Exception:
 
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
+LOG_FILE = "search_log.json"
 
-# ==================== 3. FUNGSI DATA & FORMAT KOLOM ====================
+
+# ==================== 3. ALGORITMA PELACAKAN PENCARIAN (TOP 10) ====================
+def record_search(keyword):
+  """Mencatat kata kunci pencarian dan menambah bobot frekuensinya."""
+  if not keyword or len(str(keyword).strip()) < 2:
+    return
+  item = str(keyword).strip().title()
+
+  # Abai jika berupa pilihan default
+  if item.startswith("--"):
+    return
+
+  log_data = {}
+  if os.path.exists(LOG_FILE):
+    try:
+      with open(LOG_FILE, "r") as f:
+        log_data = json.load(f)
+    except Exception:
+      log_data = {}
+
+  log_data[item] = log_data.get(item, 0) + 1
+
+  with open(LOG_FILE, "w") as f:
+    json.dump(log_data, f)
+
+
+def get_top_searches(top_n=10):
+  """Mengambil Top N komoditas yang paling sering dicari."""
+  if not os.path.exists(LOG_FILE):
+    return []
+  try:
+    with open(LOG_FILE, "r") as f:
+      log_data = json.load(f)
+    # Urutkan berdasarkan nilai frekuensi tertinggi (descending)
+    sorted_items = sorted(
+        log_data.items(), key=lambda item: item[1], reverse=True
+    )
+    return [item[0] for item in sorted_items[:top_n]]
+  except Exception:
+    return []
+
+
+# ==================== 4. FUNGSI LOAD DATA & REORDER KOLOM ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
-  """Membaca data dari cache CSV lokal jika ada, jika belum ada unduh dari Google Sheets."""
   if os.path.exists(cache_filename):
     try:
       return pd.read_csv(cache_filename)
@@ -51,10 +93,6 @@ def load_data_with_file_cache(sheet_name, cache_filename):
 
 
 def arrange_initial_columns(df):
-  """Memastikan kolom utama (Kode Lengkap, Kode Komoditas, Nama Komoditas, Kode Kualitas, Nama Kualitas)
-
-  berada di posisi paling kiri tabel jika tersedia di spreadsheet.
-  """
   priority_cols = [
       "Kode Lengkap",
       "Kode Komoditas",
@@ -67,7 +105,7 @@ def arrange_initial_columns(df):
   return df[existing_priority + other_cols]
 
 
-# ==================== 4. JUDUL UTAMA & REFRESH DATA ====================
+# ==================== 5. JUDUL UTAMA & REFRESH ====================
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
 col1, col2 = st.columns(2)
@@ -81,7 +119,7 @@ with col2:
     st.success("Cache berhasil dibersihkan!")
     st.rerun()
 
-# ==================== 5. MULTI-TAB NAVIGATION ====================
+# ==================== 6. MULTI-TAB NAVIGATION ====================
 tab1, tab2 = st.tabs([
     "🔍 Database Utama",
     "🚗 Pemetaan Pengeluaran Turunan",
@@ -92,16 +130,28 @@ with tab1:
   st.subheader("📋 Pencarian Database Utama ('Database')")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
-    df = arrange_initial_columns(df)  # Penataan posisi kolom utama
+    df = arrange_initial_columns(df)
+
+    # Menampilkan Top 10 Pencarian Paling Sering
+    top_items = get_top_searches(10)
+    if top_items:
+      st.markdown("🔥 **Top Komoditas Sering Dicari:**")
+      cols = st.columns(min(len(top_items), 5))
+      for idx, item_name in enumerate(top_items[:5]):
+        if cols[idx].button(f"📌 {item_name}", key=f"btn_t1_{idx}"):
+          st.session_state["search_keyword"] = item_name
 
     with st.form(key="search_form"):
+      default_val = st.session_state.get("search_keyword", "")
       keyword = st.text_input(
           "Ketik kata kunci atau kode (tekan Enter atau klik Cari):",
+          value=default_val,
           placeholder="Contoh: Kode, Nama, Kategori...",
       )
       submit_search = st.form_submit_button("🔍 Cari Data")
 
     if keyword:
+      record_search(keyword)  # Catat kata kunci ke sistem ranking Top 10
       mask = pd.Series(False, index=df.index)
       for col in df.columns:
         mask |= (
@@ -130,10 +180,9 @@ with tab2:
     df_pemetaan = load_data_with_file_cache(
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
-    df_pemetaan = arrange_initial_columns(df_pemetaan)  # Penataan posisi kolom utama
+    df_pemetaan = arrange_initial_columns(df_pemetaan)
 
     if not df_pemetaan.empty:
-      # Deteksi nama kolom acuan komoditas induk
       col_induk = (
           "Komoditas Induk"
           if "Komoditas Induk" in df_pemetaan.columns
@@ -158,6 +207,11 @@ with tab2:
         pilihan_induk = st.selectbox(
             "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
         )
+
+      if pilihan_induk != "-- Tampilkan Semua Barang --":
+        record_search(
+            pilihan_induk
+        )  # Catat komoditas pilihan pengguna ke Top 10
 
       filtered_pemetaan = df_pemetaan.copy()
       if pilihan_induk != "-- Tampilkan Semua Barang --":
