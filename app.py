@@ -3,6 +3,18 @@ import gspread
 import pandas as pd
 import streamlit as st
 
+# ==================== KODE KUSTOM TAMPILAN ====================
+# Menyembunyikan tombol Deploy, Footer, Header, dan Menu bawaan Streamlit
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            [data-testid="stAppDeployButton"] {display: none;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # 1. Autentikasi Google Sheets API (Otomatis: Cloud vs Lokal)
 try:
   client = gspread.service_account_from_dict(
@@ -16,29 +28,25 @@ spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G
 
 
 # 3. Fungsi Membaca Data dengan File Cache (.csv)
-@st.cache_data(ttl=3600)  # Simpan di memori RAM selama 1 jam (3600 detik)
+@st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
-  # Jika berkas CSV lokal sudah ada, baca dari file lokal (Instan & Tanpa Internet)
   if os.path.exists(cache_filename):
     try:
       return pd.read_csv(cache_filename)
     except Exception:
-      pass  # Jika berkas rusak, beralih mengambil ulang dari Google Sheets
+      pass
 
-  # Jika berkas cache belum ada, unduh dari Google Sheets API
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
   df = pd.DataFrame(records)
-
-  # Simpan hasil unduhan ke berkas CSV lokal
   df.to_csv(cache_filename, index=False)
   return df
 
 
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
-# 4. Tombol Refresh Data (Hapus Cache RAM & Berkas CSV)
-col1, col2 = st.columns([3, 1])
+# 4. Tombol Refresh Data (Diperbaiki: st.columns(2))
+col1, col2 = st.columns(2)
 with col2:
   if st.button("🔄 Refresh Data"):
     if os.path.exists("cache_database.csv"):
@@ -61,7 +69,6 @@ with tab1:
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
 
-    # Form Pencarian Cepat
     with st.form(key="search_form"):
       keyword = st.text_input(
           "Ketik kata kunci atau kode (tekan Enter atau klik Cari):",
@@ -100,14 +107,12 @@ with tab2:
     )
 
     if not df_pemetaan.empty:
-      # Menentukan nama kolom utama (Komoditas Induk / Barang Utama)
       col_induk = (
           "Komoditas Induk"
           if "Komoditas Induk" in df_pemetaan.columns
           else df_pemetaan.columns[0]
       )
 
-      # Mengambil daftar barang unik dari data cache
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
           [
               str(x)
@@ -118,7 +123,6 @@ with tab2:
 
       col_filter1, col_filter2 = st.columns(2)
 
-      # 1. Filter Dropdown Utama
       with col_filter1:
         pilihan_induk = st.selectbox(
             "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
@@ -130,7 +134,6 @@ with tab2:
             filtered_pemetaan[col_induk].astype(str) == pilihan_induk
         ]
 
-      # 2. Filter Dropdown Sekunder (Kategori Relasi)
       col_kat = next(
           (
               col
