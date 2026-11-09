@@ -1,4 +1,4 @@
-import json
+from datetime import datetime
 import os
 import gspread
 import pandas as pd
@@ -32,51 +32,67 @@ except Exception:
 
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
-LOG_FILE = "search_log.json"
+
+# ==================== 3. SYSTEM LOG & DATABASE FREKUENSI PENCARIAN ====================
+@st.cache_data(ttl=60)  # Sinkronisasi statistik setiap 1 menit
+def get_top_searches_from_sheets(top_n=10):
+  """Membaca daftar kata kunci dan frekuensi pencarian dari tab 'Log_Pencarian'."""
+  try:
+    sh = client.open_by_url(spreadsheet_url)
+    ws = sh.worksheet("Log_Pencarian")
+    records = ws.get_all_records()
+    df_log = pd.DataFrame(records)
+    if not df_log.empty and "Kata_Kunci" in df_log.columns:
+      df_log["Jumlah_Pencarian"] = pd.to_numeric(
+          df_log["Jumlah_Pencarian"], errors="coerce"
+      ).fillna(0)
+      df_log = df_log.sort_values(by="Jumlah_Pencarian", ascending=False)
+      return df_log.head(top_n).to_dict("records")
+  except Exception:
+    pass
+  return []
 
 
-# ==================== 3. ALGORITMA PELACAKAN PENCARIAN (TOP 10) ====================
-def record_search(keyword):
-  """Mencatat kata kunci pencarian dan menambah bobot frekuensinya."""
+def record_search_to_sheets(keyword):
+  """Mencatat kata kunci dan mengupdate jumlah pencariannya langsung di Google Sheets."""
   if not keyword or len(str(keyword).strip()) < 2:
     return
   item = str(keyword).strip().title()
-
-  # Abai jika berupa pilihan default
   if item.startswith("--"):
     return
 
-  log_data = {}
-  if os.path.exists(LOG_FILE):
-    try:
-      with open(LOG_FILE, "r") as f:
-        log_data = json.load(f)
-    except Exception:
-      log_data = {}
-
-  log_data[item] = log_data.get(item, 0) + 1
-
-  with open(LOG_FILE, "w") as f:
-    json.dump(log_data, f)
-
-
-def get_top_searches(top_n=10):
-  """Mengambil Top N komoditas yang paling sering dicari."""
-  if not os.path.exists(LOG_FILE):
-    return []
   try:
-    with open(LOG_FILE, "r") as f:
-      log_data = json.load(f)
-    # Urutkan berdasarkan nilai frekuensi tertinggi (descending)
-    sorted_items = sorted(
-        log_data.items(), key=lambda item: item[1], reverse=True
-    )
-    return [item[0] for item in sorted_items[:top_n]]
+    sh = client.open_by_url(spreadsheet_url)
+    try:
+      ws = sh.worksheet("Log_Pencarian")
+    except Exception:
+      # Buat worksheet baru jika belum ada
+      ws = sh.add_worksheet(title="Log_Pencarian", rows="100", cols="3")
+      ws.append_row(["Kata_Kunci", "Jumlah_Pencarian", "Terakhir_Dicari"])
+
+    records = ws.get_all_records()
+    found = False
+    row_idx = 2  # Baris 1 adalah Header
+
+    for r in records:
+      if str(r.get("Kata_Kunci", "")).strip().title() == item:
+        current_count = int(r.get("Jumlah_Pencarian", 0))
+        ws.update_cell(row_idx, 2, current_count + 1)
+        ws.update_cell(
+            row_idx, 3, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        found = True
+        break
+      row_idx += 1
+
+    if not found:
+      ws.append_row([item, 1, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+
   except Exception:
-    return []
+    pass
 
 
-# ==================== 4. FUNGSI LOAD DATA & REORDER KOLOM ====================
+# ==================== 4. FUNGSI DATA CACHE & FORMAT KOLOM ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
   if os.path.exists(cache_filename):
@@ -105,7 +121,7 @@ def arrange_initial_columns(df):
   return df[existing_priority + other_cols]
 
 
-# ==================== 5. JUDUL UTAMA & REFRESH ====================
+# ==================== 5. JUDUL UTAMA & REFRESH DATA ====================
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
 col1, col2 = st.columns(2)
@@ -132,14 +148,15 @@ with tab1:
     df = load_data_with_file_cache("Database", "cache_database.csv")
     df = arrange_initial_columns(df)
 
-    # Menampilkan Top 10 Pencarian Paling Sering
-    top_items = get_top_searches(10)
-    if top_items:
-      st.markdown("🔥 **Top Komoditas Sering Dicari:**")
-      cols = st.columns(min(len(top_items), 5))
-      for idx, item_name in enumerate(top_items[:5]):
-        if cols[idx].button(f"📌 {item_name}", key=f"btn_t1_{idx}"):
-          st.session_state["search_keyword"] = item_name
+    # Menampilkan Top Komoditas Terpopuler beserta Jumlah Pencariannya (misal: 15x)
+    top_logs = get_top_searches_from_sheets(5)
+    if top_logs:
+      st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
+      cols = st.columns(len(top_logs))
+      for idx, item in enumerate(top_logs):
+        label = f"📌 {item['Kata_Kunci']} ({item['Jumlah_Pencarian']}x)"
+        if cols[idx].button(label, key=f"btn_t1_{idx}"):
+          st.session_state["search_keyword"] = item["Kata_Kunci"]
 
     with st.form(key="search_form"):
       default_val = st.session_state.get("search_keyword", "")
@@ -151,7 +168,7 @@ with tab1:
       submit_search = st.form_submit_button("🔍 Cari Data")
 
     if keyword:
-      record_search(keyword)  # Catat kata kunci ke sistem ranking Top 10
+      record_search_to_sheets(keyword)  # Simpan & tambah akumulasi di Cloud
       mask = pd.Series(False, index=df.index)
       for col in df.columns:
         mask |= (
@@ -189,7 +206,7 @@ with tab2:
           else (
               "Nama Komoditas"
               if "Nama Komoditas" in df_pemetaan.columns
-              else df_pemetaan.columns[0]
+              else df_pemetaan.columns
           )
       )
 
@@ -209,9 +226,7 @@ with tab2:
         )
 
       if pilihan_induk != "-- Tampilkan Semua Barang --":
-        record_search(
-            pilihan_induk
-        )  # Catat komoditas pilihan pengguna ke Top 10
+        record_search_to_sheets(pilihan_induk)
 
       filtered_pemetaan = df_pemetaan.copy()
       if pilihan_induk != "-- Tampilkan Semua Barang --":
