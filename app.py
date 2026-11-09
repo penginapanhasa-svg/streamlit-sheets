@@ -127,7 +127,7 @@ def arrange_initial_columns(df):
 
 
 # ==================== 5. JUDUL UTAMA & REFRESH DATA ====================
-st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
+st.title("Data Komoditas Konsumsi Rumah Tangga")
 
 col1, col2 = st.columns(2)
 with col2:
@@ -142,13 +142,13 @@ with col2:
 
 # ==================== 6. MULTI-TAB NAVIGATION ====================
 tab1, tab2 = st.tabs([
-    "🔍 Database Utama",
-    "🚗 Pemetaan Pengeluaran Turunan",
+    "Database Komoditas",
+    "Pemetaan Pengeluaran Turunan",
 ])
 
 # -------------------- TAB 1: DATABASE UTAMA --------------------
 with tab1:
-  st.subheader("📋 Pencarian Database Utama ('Database')")
+  st.subheader("📋 Pencarian Komoditas")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
     df = arrange_initial_columns(df)  # Penataan kolom utama (Id berada di paling kiri)
@@ -192,7 +192,7 @@ with tab1:
 
 # -------------------- TAB 2: DATABASE PEMETAAN --------------------
 with tab2:
-  st.subheader("💡 Pemetaan Pengeluaran Turunan ('Database_Pemetaan')")
+  st.subheader("💡 Pemetaan Pengeluaran Turunan")
   st.caption(
       "Pilih barang/komoditas utama melalui opsi pilihan di bawah untuk melihat"
       " pengeluaran konsekuensi yang lazim muncul."
