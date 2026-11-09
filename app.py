@@ -24,39 +24,50 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==================== 2. AUTENTIKASI GOOGLE SHEETS ====================
 try:
-  # Berjalan di Streamlit Cloud (menggunakan Secrets)
   client = gspread.service_account_from_dict(
       dict(st.secrets["gcp_service_account"])
   )
 except Exception:
-  # Berjalan di lokal (menggunakan credentials.json)
   client = gspread.service_account(filename="credentials.json")
 
-# URL Google Spreadsheet
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
 
-# ==================== 3. FUNGSI LOAD DATA (FILE CACHE CSV) ====================
-@st.cache_data(ttl=3600)  # Cache RAM selama 1 jam
+# ==================== 3. FUNGSI DATA & FORMAT KOLOM ====================
+@st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
-  # Jika berkas CSV lokal sudah ada, baca langsung dari disk (Instan)
+  """Membaca data dari cache CSV lokal jika ada, jika belum ada unduh dari Google Sheets."""
   if os.path.exists(cache_filename):
     try:
       return pd.read_csv(cache_filename)
     except Exception:
-      pass  # Jika file rusak, lanjut ambil ulang dari Google Sheets
+      pass
 
-  # Jika belum ada cache, unduh dari Google Sheets API
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
   df = pd.DataFrame(records)
-
-  # Simpan hasil unduhan ke berkas CSV lokal
   df.to_csv(cache_filename, index=False)
   return df
 
 
-# ==================== 4. JUDUL UTAMA & TOMBOL REFRESH ====================
+def arrange_initial_columns(df):
+  """Memastikan kolom utama (Kode Lengkap, Kode Komoditas, Nama Komoditas, Kode Kualitas, Nama Kualitas)
+
+  berada di posisi paling kiri tabel jika tersedia di spreadsheet.
+  """
+  priority_cols = [
+      "Kode Lengkap",
+      "Kode Komoditas",
+      "Nama Komoditas",
+      "Kode Kualitas",
+      "Nama Kualitas",
+  ]
+  existing_priority = [col for col in priority_cols if col in df.columns]
+  other_cols = [col for col in df.columns if col not in existing_priority]
+  return df[existing_priority + other_cols]
+
+
+# ==================== 4. JUDUL UTAMA & REFRESH DATA ====================
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
 col1, col2 = st.columns(2)
@@ -70,7 +81,7 @@ with col2:
     st.success("Cache berhasil dibersihkan!")
     st.rerun()
 
-# ==================== 5. NAVIGATION TAB ====================
+# ==================== 5. MULTI-TAB NAVIGATION ====================
 tab1, tab2 = st.tabs([
     "🔍 Database Utama",
     "🚗 Pemetaan Pengeluaran Turunan",
@@ -81,6 +92,7 @@ with tab1:
   st.subheader("📋 Pencarian Database Utama ('Database')")
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
+    df = arrange_initial_columns(df)  # Penataan posisi kolom utama
 
     with st.form(key="search_form"):
       keyword = st.text_input(
@@ -118,16 +130,20 @@ with tab2:
     df_pemetaan = load_data_with_file_cache(
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
+    df_pemetaan = arrange_initial_columns(df_pemetaan)  # Penataan posisi kolom utama
 
     if not df_pemetaan.empty:
-      # Deteksi nama kolom utama (Komoditas Induk)
+      # Deteksi nama kolom acuan komoditas induk
       col_induk = (
           "Komoditas Induk"
           if "Komoditas Induk" in df_pemetaan.columns
-          else df_pemetaan.columns[0]
+          else (
+              "Nama Komoditas"
+              if "Nama Komoditas" in df_pemetaan.columns
+              else df_pemetaan.columns[0]
+          )
       )
 
-      # Buat daftar unik untuk dropdown barang utama
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
           [
               str(x)
@@ -149,7 +165,6 @@ with tab2:
             filtered_pemetaan[col_induk].astype(str) == pilihan_induk
         ]
 
-      # Deteksi nama kolom kategori relasi
       col_kat = next(
           (
               col
