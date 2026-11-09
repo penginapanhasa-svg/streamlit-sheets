@@ -3,49 +3,62 @@ import gspread
 import pandas as pd
 import streamlit as st
 
-# ==================== KODE KUSTOM TAMPILAN ====================
-# Menyembunyikan tombol Deploy, Footer, Header, dan Menu bawaan Streamlit
+# ==================== 1. KUSTOMISASI TAMPILAN (CSS) ====================
+# Menyembunyikan Header, Footer, Menu, Deploy Button, Manage App, & Badge Streamlit
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
-            [data-testid="stAppDeployButton"] {display: none;}
+            [data-testid="stAppDeployButton"] {display: none !important;}
+            [data-testid="stStatusWidget"] {display: none !important;}
+            .stAppToolbar {display: none !important;}
+            [data-testid="stHeader"] {display: none !important;}
+            [data-testid="stFooter"] {display: none !important;}
+            #stDecoration {display: none !important;}
+            div[class*="viewerBadge"] {display: none !important;}
+            a[href*="streamlit.io"] {display: none !important;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# 1. Autentikasi Google Sheets API (Otomatis: Cloud vs Lokal)
+# ==================== 2. AUTENTIKASI GOOGLE SHEETS ====================
 try:
+  # Berjalan di Streamlit Cloud (menggunakan Secrets)
   client = gspread.service_account_from_dict(
       dict(st.secrets["gcp_service_account"])
   )
 except Exception:
+  # Berjalan di lokal (menggunakan credentials.json)
   client = gspread.service_account(filename="credentials.json")
 
-# 2. URL Google Sheets
+# URL Google Spreadsheet
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G8T7WV51kZbUnftJEt4JLfk/edit?usp=sharing"
 
 
-# 3. Fungsi Membaca Data dengan File Cache (.csv)
-@st.cache_data(ttl=3600)
+# ==================== 3. FUNGSI LOAD DATA (FILE CACHE CSV) ====================
+@st.cache_data(ttl=3600)  # Cache RAM selama 1 jam
 def load_data_with_file_cache(sheet_name, cache_filename):
+  # Jika berkas CSV lokal sudah ada, baca langsung dari disk (Instan)
   if os.path.exists(cache_filename):
     try:
       return pd.read_csv(cache_filename)
     except Exception:
-      pass
+      pass  # Jika file rusak, lanjut ambil ulang dari Google Sheets
 
+  # Jika belum ada cache, unduh dari Google Sheets API
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
   records = sheet.get_all_records()
   df = pd.DataFrame(records)
+
+  # Simpan hasil unduhan ke berkas CSV lokal
   df.to_csv(cache_filename, index=False)
   return df
 
 
+# ==================== 4. JUDUL UTAMA & TOMBOL REFRESH ====================
 st.title("📊 Manajemen Data & Pengeluaran Rumah Tangga")
 
-# 4. Tombol Refresh Data (Diperbaiki: st.columns(2))
 col1, col2 = st.columns(2)
 with col2:
   if st.button("🔄 Refresh Data"):
@@ -57,13 +70,13 @@ with col2:
     st.success("Cache berhasil dibersihkan!")
     st.rerun()
 
-# 5. Multi-Tab Tampilan
+# ==================== 5. NAVIGATION TAB ====================
 tab1, tab2 = st.tabs([
     "🔍 Database Utama",
     "🚗 Pemetaan Pengeluaran Turunan",
 ])
 
-# ==================== TAB 1: DATABASE UTAMA ====================
+# -------------------- TAB 1: DATABASE UTAMA --------------------
 with tab1:
   st.subheader("📋 Pencarian Database Utama ('Database')")
   try:
@@ -93,7 +106,7 @@ with tab1:
   except Exception as e:
     st.error(f"Gagal memuat data dari worksheet 'Database': {e}")
 
-# ==================== TAB 2: DATABASE PEMETAAN ====================
+# -------------------- TAB 2: DATABASE PEMETAAN --------------------
 with tab2:
   st.subheader("💡 Pemetaan Pengeluaran Turunan ('Database_Pemetaan')")
   st.caption(
@@ -107,12 +120,14 @@ with tab2:
     )
 
     if not df_pemetaan.empty:
+      # Deteksi nama kolom utama (Komoditas Induk)
       col_induk = (
           "Komoditas Induk"
           if "Komoditas Induk" in df_pemetaan.columns
           else df_pemetaan.columns[0]
       )
 
+      # Buat daftar unik untuk dropdown barang utama
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
           [
               str(x)
@@ -134,6 +149,7 @@ with tab2:
             filtered_pemetaan[col_induk].astype(str) == pilihan_induk
         ]
 
+      # Deteksi nama kolom kategori relasi
       col_kat = next(
           (
               col
