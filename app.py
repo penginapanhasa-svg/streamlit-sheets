@@ -89,7 +89,7 @@ def record_search_to_sheets(keyword):
     pass
 
 
-# ==================== 4. FUNGSI DATA & FORMAT 3 DIGIT ====================
+# ==================== 4. FUNGSI DATA AMAN ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
   if os.path.exists(cache_filename):
@@ -99,8 +99,32 @@ def load_data_with_file_cache(sheet_name, cache_filename):
       pass
 
   sheet = client.open_by_url(spreadsheet_url).worksheet(sheet_name)
-  records = sheet.get_all_records()
-  df = pd.DataFrame(records).astype(str)
+  data = sheet.get_all_values()
+
+  if not data or len(data) == 0:
+    df = pd.DataFrame()
+  else:
+    raw_header = data[0]  # Mengambil baris 0 sebagai header tunggal
+    cleaned_header = []
+    seen = {}
+
+    for idx, col in enumerate(raw_header):
+      col_name = str(col).strip() if str(col).strip() != "" else f"Unnamed_{idx}"
+      if col_name in seen:
+        seen[col_name] += 1
+        col_name = f"{col_name}_{seen[col_name]}"
+      else:
+        seen[col_name] = 0
+      cleaned_header.append(col_name)
+
+    df = pd.DataFrame(data[1:], columns=cleaned_header).astype(str)
+    cols_to_keep = [
+        c
+        for c in df.columns
+        if not c.startswith("Unnamed_") or df[c].str.strip().ne("").any()
+    ]
+    df = df[cols_to_keep]
+
   df.to_csv(cache_filename, index=False)
   return df
 
@@ -113,16 +137,7 @@ def format_code_columns(df):
           df[col]
           .astype(str)
           .str.strip()
-          .apply(
-              lambda x: (
-                  x.split(".")[0].zfill(3)
-                  if (
-                      x.split(".")[0].isdigit()
-                      and len(x.split(".")[0]) <= 3
-                  )
-                  else x
-              )
-          )
+          .apply(lambda x: x.zfill(3) if (x.isdigit() and len(x) <= 3) else x)
       )
   return df
 
@@ -228,25 +243,31 @@ with tab2:
           "Nama Komoditas",
           "Barang Utama",
           "Komoditas",
-          "Id",
-          "ID",
-          "id",
+          "Barang",
       ]
-      # Perbaikan penentuan kolom induk agar selalu mengembalikan 1 nama kolom tunggal (string)
-      col_induk = next(
-          (c for c in candidates if c in df_pemetaan.columns),
-          (
-              df_pemetaan.columns[0]
-              if not df_pemetaan.columns.empty
-              else None
-          ),
-      )
 
-      if col_induk and col_induk in df_pemetaan.columns:
+      col_induk = None
+      for c in candidates:
+        if c in df_pemetaan.columns:
+          col_induk = c
+          break
+
+      # Jika tidak ditemukan kandidat, pilih nama kolom pertama (STRING tunggal)
+      if not col_induk and len(df_pemetaan.columns) > 0:
+        col_induk = df_pemetaan.columns[0]
+
+      if col_induk:
+        val_induk = df_pemetaan[col_induk]
+        series_induk = (
+            val_induk.iloc[:, 0]
+            if isinstance(val_induk, pd.DataFrame)
+            else val_induk
+        )
+
         opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
             [
                 str(x)
-                for x in df_pemetaan[col_induk].dropna().unique()
+                for x in series_induk.dropna().unique()
                 if str(x).strip() != ""
             ]
         )
@@ -263,8 +284,14 @@ with tab2:
 
         filtered_pemetaan = df_pemetaan.copy()
         if pilihan_induk != "-- Tampilkan Semua Barang --":
+          val_filtered = filtered_pemetaan[col_induk]
+          s_filtered = (
+              val_filtered.iloc[:, 0]
+              if isinstance(val_filtered, pd.DataFrame)
+              else val_filtered
+          )
           filtered_pemetaan = filtered_pemetaan[
-              filtered_pemetaan[col_induk].astype(str) == pilihan_induk
+              s_filtered.astype(str) == pilihan_induk
           ]
 
         col_kat = next(
@@ -275,20 +302,35 @@ with tab2:
             ),
             None,
         )
+
         if col_kat:
+          val_kat = filtered_pemetaan[col_kat]
+          series_kat = (
+              val_kat.iloc[:, 0]
+              if isinstance(val_kat, pd.DataFrame)
+              else val_kat
+          )
+
           opsi_kat = ["-- Semua Kategori --"] + sorted(
               [
                   str(x)
-                  for x in filtered_pemetaan[col_kat].dropna().unique()
+                  for x in series_kat.dropna().unique()
                   if str(x).strip() != ""
               ]
           )
+
           with col_filter2:
             pilihan_kat = st.selectbox("🏷️ Filter Kategori Relasi:", opsi_kat)
 
           if pilihan_kat != "-- Semua Kategori --":
+            val_kat_filter = filtered_pemetaan[col_kat]
+            s_kat_filter = (
+                val_kat_filter.iloc[:, 0]
+                if isinstance(val_kat_filter, pd.DataFrame)
+                else val_kat_filter
+            )
             filtered_pemetaan = filtered_pemetaan[
-                filtered_pemetaan[col_kat].astype(str) == pilihan_kat
+                s_kat_filter.astype(str) == pilihan_kat
             ]
 
         st.write(
@@ -296,11 +338,6 @@ with tab2:
             " turunan yang sesuai:"
         )
         st.dataframe(filtered_pemetaan, use_container_width=True)
-
-      else:
-        st.warning(
-            "Kolom utama tidak ditemukan pada worksheet 'Database_Pemetaan'."
-        )
 
     else:
       st.warning("Worksheet 'Database_Pemetaan' masih kosong.")
