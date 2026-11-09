@@ -1,5 +1,6 @@
-from datetime import datetime
+import json
 import os
+from datetime import datetime
 import gspread
 import pandas as pd
 import streamlit as st
@@ -34,9 +35,8 @@ spreadsheet_url = "https://docs.google.com/spreadsheets/d/1L04V4tynlOABViIwlj87G
 
 
 # ==================== 3. SYSTEM LOG & DATABASE FREKUENSI PENCARIAN ====================
-@st.cache_data(ttl=60)  # Sinkronisasi statistik setiap 1 menit
+@st.cache_data(ttl=60)
 def get_top_searches_from_sheets(top_n=10):
-  """Membaca daftar kata kunci dan frekuensi pencarian dari tab 'Log_Pencarian'."""
   try:
     sh = client.open_by_url(spreadsheet_url)
     ws = sh.worksheet("Log_Pencarian")
@@ -54,7 +54,6 @@ def get_top_searches_from_sheets(top_n=10):
 
 
 def record_search_to_sheets(keyword):
-  """Mencatat kata kunci dan mengupdate jumlah pencariannya langsung di Google Sheets."""
   if not keyword or len(str(keyword).strip()) < 2:
     return
   item = str(keyword).strip().title()
@@ -66,13 +65,12 @@ def record_search_to_sheets(keyword):
     try:
       ws = sh.worksheet("Log_Pencarian")
     except Exception:
-      # Buat worksheet baru jika belum ada
       ws = sh.add_worksheet(title="Log_Pencarian", rows="100", cols="3")
       ws.append_row(["Kata_Kunci", "Jumlah_Pencarian", "Terakhir_Dicari"])
 
     records = ws.get_all_records()
     found = False
-    row_idx = 2  # Baris 1 adalah Header
+    row_idx = 2
 
     for r in records:
       if str(r.get("Kata_Kunci", "")).strip().title() == item:
@@ -87,7 +85,6 @@ def record_search_to_sheets(keyword):
 
     if not found:
       ws.append_row([item, 1, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-
   except Exception:
     pass
 
@@ -148,7 +145,6 @@ with tab1:
     df = load_data_with_file_cache("Database", "cache_database.csv")
     df = arrange_initial_columns(df)
 
-    # Menampilkan Top Komoditas Terpopuler beserta Jumlah Pencariannya (misal: 15x)
     top_logs = get_top_searches_from_sheets(5)
     if top_logs:
       st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
@@ -168,7 +164,7 @@ with tab1:
       submit_search = st.form_submit_button("🔍 Cari Data")
 
     if keyword:
-      record_search_to_sheets(keyword)  # Simpan & tambah akumulasi di Cloud
+      record_search_to_sheets(keyword)
       mask = pd.Series(False, index=df.index)
       for col in df.columns:
         mask |= (
@@ -200,14 +196,16 @@ with tab2:
     df_pemetaan = arrange_initial_columns(df_pemetaan)
 
     if not df_pemetaan.empty:
-      col_induk = (
-          "Komoditas Induk"
-          if "Komoditas Induk" in df_pemetaan.columns
-          else (
-              "Nama Komoditas"
-              if "Nama Komoditas" in df_pemetaan.columns
-              else df_pemetaan.columns
-          )
+      # Deteksi nama kolom acuan komoditas induk secara aman (selalu mengembalikan 1 string nama kolom)
+      candidates = [
+          "Komoditas Induk",
+          "Nama Komoditas",
+          "Barang Utama",
+          "Komoditas",
+      ]
+      col_induk = next(
+          (c for c in candidates if c in df_pemetaan.columns),
+          df_pemetaan.columns[0],
       )
 
       opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
