@@ -105,7 +105,7 @@ def load_data_with_file_cache(sheet_name, cache_filename):
   if not data or len(data) == 0:
     df = pd.DataFrame()
   else:
-    raw_header = data[0]  # Baris 0 sebagai header
+    raw_header = data[0]  # Baris pertama sebagai header
     cleaned_header = []
     seen = {}
 
@@ -146,16 +146,16 @@ def format_code_columns(df):
   return df
 
 
-def ensure_and_arrange_columns(df):
-  """Memastikan Kode Lengkap selalu ada dan berada di kolom nomor 1 (paling kiri)."""
-  # Cari nama kolom yang mewakili Kode Lengkap
-  kode_lengkap_col = next(
+def arrange_columns(df):
+  """Menempatkan kolom 'Kode Lengkap' dari sheet asli langsung di posisi pertama (kolom 1)."""
+  # Deteksi nama kolom Kode Lengkap yang ada di spreadsheet
+  target_kode_lengkap = next(
       (
           c
           for c in [
               "Kode Lengkap",
-              "Kode Komoditas Lengkap",
               "Kode_Lengkap",
+              "Kode Komoditas Lengkap",
               "Kode Lengkap Komoditas",
           ]
           if c in df.columns
@@ -163,26 +163,16 @@ def ensure_and_arrange_columns(df):
       None,
   )
 
-  # Jika belum ada kolom Kode Lengkap tetapi ada Kode Komoditas & Kode Kualitas, buat otomatis
-  if not kode_lengkap_col:
-    if "Kode Komoditas" in df.columns and "Kode Kualitas" in df.columns:
-      df.insert(
-          0,
-          "Kode Lengkap",
-          df["Kode Komoditas"].astype(str) + df["Kode Kualitas"].astype(str),
-      )
-      kode_lengkap_col = "Kode Lengkap"
-
-  # Urutan prioritas kolom: Kode Lengkap wajib paling awal (kolom 1)
+  # Susunan prioritas kolom awal
   priority_cols = [
-      kode_lengkap_col,
+      target_kode_lengkap,
+      "Id",
+      "ID",
+      "id",
       "Kode Komoditas",
       "Nama Komoditas",
       "Kode Kualitas",
       "Nama Kualitas",
-      "Id",
-      "ID",
-      "id",
   ]
   existing_priority = [col for col in priority_cols if col and col in df.columns]
   other_cols = [col for col in df.columns if col not in existing_priority]
@@ -216,7 +206,7 @@ with tab1:
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
     df = format_code_columns(df)
-    df = ensure_and_arrange_columns(df)  # Kode Lengkap di kolom pertama
+    df = arrange_columns(df)  # Membaca kolom Kode Lengkap langsung dari tabel
 
     top_logs = get_top_searches_from_sheets(5)
     if top_logs:
@@ -267,9 +257,7 @@ with tab2:
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
     df_pemetaan = format_code_columns(df_pemetaan)
-    df_pemetaan = ensure_and_arrange_columns(
-        df_pemetaan
-    )  # Kode Lengkap di kolom pertama
+    df_pemetaan = arrange_columns(df_pemetaan)
 
     if not df_pemetaan.empty:
       candidates = [
