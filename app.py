@@ -11,6 +11,7 @@ hide_st_style = """
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
             [data-testid="stAppDeployButton"] {display: none !important;}
             [data-testid="stStatusWidget"] {display: none !important;}
             .stAppToolbar {display: none !important;}
@@ -89,7 +90,7 @@ def record_search_to_sheets(keyword):
     pass
 
 
-# ==================== 4. FUNGSI DATA AMAN ====================
+# ==================== 4. FUNGSI DATA, FORMAT 3 DIGIT & PENATAAN KOLOM ====================
 @st.cache_data(ttl=3600)
 def load_data_with_file_cache(sheet_name, cache_filename):
   if os.path.exists(cache_filename):
@@ -104,12 +105,14 @@ def load_data_with_file_cache(sheet_name, cache_filename):
   if not data or len(data) == 0:
     df = pd.DataFrame()
   else:
-    raw_header = data[0]  # Mengambil baris 0 sebagai header tunggal
+    raw_header = data[0]  # Baris 0 sebagai header
     cleaned_header = []
     seen = {}
 
     for idx, col in enumerate(raw_header):
-      col_name = str(col).strip() if str(col).strip() != "" else f"Unnamed_{idx}"
+      col_name = (
+          str(col).strip() if str(col).strip() != "" else f"Unnamed_{idx}"
+      )
       if col_name in seen:
         seen[col_name] += 1
         col_name = f"{col_name}_{seen[col_name]}"
@@ -130,6 +133,7 @@ def load_data_with_file_cache(sheet_name, cache_filename):
 
 
 def format_code_columns(df):
+  """Memastikan Kode Komoditas dan Kode Kualitas tetap 3 digit."""
   code_cols = ["Kode Komoditas", "Kode Kualitas"]
   for col in code_cols:
     if col in df.columns:
@@ -142,19 +146,47 @@ def format_code_columns(df):
   return df
 
 
-def arrange_initial_columns(df):
+def ensure_and_arrange_columns(df):
+  """Memastikan Kode Lengkap selalu ada dan berada di kolom nomor 1 (paling kiri)."""
+  # Cari nama kolom yang mewakili Kode Lengkap
+  kode_lengkap_col = next(
+      (
+          c
+          for c in [
+              "Kode Lengkap",
+              "Kode Komoditas Lengkap",
+              "Kode_Lengkap",
+              "Kode Lengkap Komoditas",
+          ]
+          if c in df.columns
+      ),
+      None,
+  )
+
+  # Jika belum ada kolom Kode Lengkap tetapi ada Kode Komoditas & Kode Kualitas, buat otomatis
+  if not kode_lengkap_col:
+    if "Kode Komoditas" in df.columns and "Kode Kualitas" in df.columns:
+      df.insert(
+          0,
+          "Kode Lengkap",
+          df["Kode Komoditas"].astype(str) + df["Kode Kualitas"].astype(str),
+      )
+      kode_lengkap_col = "Kode Lengkap"
+
+  # Urutan prioritas kolom: Kode Lengkap wajib paling awal (kolom 1)
   priority_cols = [
-      "Id",
-      "ID",
-      "id",
-      "Kode Lengkap",
+      kode_lengkap_col,
       "Kode Komoditas",
       "Nama Komoditas",
       "Kode Kualitas",
       "Nama Kualitas",
+      "Id",
+      "ID",
+      "id",
   ]
-  existing_priority = [col for col in priority_cols if col in df.columns]
+  existing_priority = [col for col in priority_cols if col and col in df.columns]
   other_cols = [col for col in df.columns if col not in existing_priority]
+
   return df[existing_priority + other_cols]
 
 
@@ -184,7 +216,7 @@ with tab1:
   try:
     df = load_data_with_file_cache("Database", "cache_database.csv")
     df = format_code_columns(df)
-    df = arrange_initial_columns(df)
+    df = ensure_and_arrange_columns(df)  # Kode Lengkap di kolom pertama
 
     top_logs = get_top_searches_from_sheets(5)
     if top_logs:
@@ -235,7 +267,9 @@ with tab2:
         "Database_Pemetaan", "cache_pemetaan.csv"
     )
     df_pemetaan = format_code_columns(df_pemetaan)
-    df_pemetaan = arrange_initial_columns(df_pemetaan)
+    df_pemetaan = ensure_and_arrange_columns(
+        df_pemetaan
+    )  # Kode Lengkap di kolom pertama
 
     if not df_pemetaan.empty:
       candidates = [
@@ -252,7 +286,6 @@ with tab2:
           col_induk = c
           break
 
-      # Jika tidak ditemukan kandidat, pilih nama kolom pertama (STRING tunggal)
       if not col_induk and len(df_pemetaan.columns) > 0:
         col_induk = df_pemetaan.columns[0]
 
