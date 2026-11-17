@@ -253,8 +253,8 @@ with tab1:
 with tab2:
   st.subheader("💡 Pemetaan Pengeluaran Turunan")
   st.caption(
-      "Pilih barang/komoditas utama melalui opsi pilihan di bawah untuk melihat"
-      " pengeluaran konsekuensi yang lazim muncul."
+      "Pilih karakteristik rumah tangga di bawah untuk melihat"
+      " pengeluaran turunan yang terkait."
   )
 
   try:
@@ -266,6 +266,7 @@ with tab2:
 
     if not df_pemetaan.empty:
       candidates = [
+          "Karakteristik Rumah Tangga",
           "Komoditas Induk",
           "Nama Komoditas",
           "Barang Utama",
@@ -302,7 +303,7 @@ with tab2:
 
         with col_filter1:
           pilihan_induk = st.selectbox(
-              "📌 Pilih Barang Utama yang Dimiliki:", opsi_induk
+              "📌 Pilih Karakteristik Rumah Tangga:", opsi_induk
           )
 
         if pilihan_induk != "-- Tampilkan Semua Barang --":
