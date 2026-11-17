@@ -364,7 +364,10 @@ with tab2:
             f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran"
             " turunan yang sesuai:"
         )
-        st.dataframe(filtered_pemetaan, use_container_width=True)
+        df_pemetaan_display = filtered_pemetaan.drop(
+            columns=["Tingkat Kebutuhan"], errors="ignore"
+        )
+        st.dataframe(df_pemetaan_display, use_container_width=True)
 
     else:
       st.warning("Worksheet 'Database_Pemetaan' masih kosong.")
