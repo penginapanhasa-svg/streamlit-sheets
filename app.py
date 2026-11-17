@@ -18,7 +18,12 @@ hide_st_style = """
             [data-testid="stHeader"] {display: none !important;}
             [data-testid="stFooter"] {display: none !important;}
             #stDecoration {display: none !important;}
-            div[class*="viewerBadge"] {display: none !important;}
+            div[class*="viewerBadge"],
+            a[class*="viewerBadge"],
+            [data-testid="stAppDeployButton"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
             a[href*="streamlit.io"] {display: none !important;}
             </style>
             """
