@@ -199,178 +199,177 @@ with col2:
     st.success("Cache berhasil dibersihkan!")
     st.rerun()
 
-# ==================== 6. MULTI-TAB NAVIGATION ====================
-tab1, tab2 = st.tabs([
-    "Database Komoditas",
-    "Pemetaan Pengeluaran Turunan",
-])
+# ==================== 6. HALAMAN UTAMA: KOMODITAS TURUNAN ====================
+st.subheader("💡 Pemetaan Pengeluaran Turunan")
+st.caption(
+    "Pilih karakteristik rumah tangga di bawah untuk melihat"
+    " pengeluaran turunan yang terkait."
+)
 
-# -------------------- TAB 1: DATABASE KOMODITAS --------------------
-with tab1:
-  st.subheader("📋 Pencarian Komoditas")
-  try:
-    df = load_data_with_file_cache("Database", "cache_database.csv")
-    df = format_code_columns(df)
-    df = arrange_columns(df)  # Membaca kolom Kode Lengkap langsung dari tabel
-
-    top_logs = get_top_searches_from_sheets(5)
-    if top_logs:
-      st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
-      cols = st.columns(len(top_logs))
-      for idx, item in enumerate(top_logs):
-        label = f"📌 {item['Kata_Kunci']} ({item['Jumlah_Pencarian']}x)"
-        if cols[idx].button(label, key=f"btn_t1_{idx}"):
-          st.session_state["search_keyword"] = item["Kata_Kunci"]
-
-    with st.form(key="search_form"):
-      default_val = st.session_state.get("search_keyword", "")
-      keyword = st.text_input(
-          "Ketik kata kunci atau kode (tekan Enter atau klik Cari):",
-          value=default_val,
-          placeholder="Contoh: Kode, Nama, Kategori...",
-      )
-      submit_search = st.form_submit_button("🔍 Cari Data")
-
-    if keyword:
-      record_search_to_sheets(keyword)
-      mask = pd.Series(False, index=df.index)
-      for col in df.columns:
-        mask |= (
-            df[col].astype(str).str.contains(keyword, case=False, na=False)
-        )
-      filtered_df = df[mask]
-      st.write(
-          f"Ditemukan **{len(filtered_df)}** data untuk kata kunci"
-          f" *'{keyword}'*:"
-      )
-      st.dataframe(filtered_df, use_container_width=True)
-    else:
-      st.dataframe(df, use_container_width=True)
-  except Exception as e:
-    st.error(f"Gagal memuat data dari worksheet 'Database': {e}")
-
-# -------------------- TAB 2: PEMETAAN PENGELUARAN TURUNAN --------------------
-with tab2:
-  st.subheader("💡 Pemetaan Pengeluaran Turunan")
-  st.caption(
-      "Pilih karakteristik rumah tangga di bawah untuk melihat"
-      " pengeluaran turunan yang terkait."
+try:
+  df_pemetaan = load_data_with_file_cache(
+      "Database_Pemetaan", "cache_pemetaan.csv"
   )
+  df_pemetaan = format_code_columns(df_pemetaan)
+  df_pemetaan = arrange_columns(df_pemetaan)
 
-  try:
-    df_pemetaan = load_data_with_file_cache(
-        "Database_Pemetaan", "cache_pemetaan.csv"
-    )
-    df_pemetaan = format_code_columns(df_pemetaan)
-    df_pemetaan = arrange_columns(df_pemetaan)
+  if not df_pemetaan.empty:
+    candidates = [
+        "Karakteristik Rumah Tangga",
+        "Komoditas Induk",
+        "Nama Komoditas",
+        "Barang Utama",
+        "Komoditas",
+        "Barang",
+    ]
 
-    if not df_pemetaan.empty:
-      candidates = [
-          "Karakteristik Rumah Tangga",
-          "Komoditas Induk",
-          "Nama Komoditas",
-          "Barang Utama",
-          "Komoditas",
-          "Barang",
-      ]
+    col_induk = None
+    for c in candidates:
+      if c in df_pemetaan.columns:
+        col_induk = c
+        break
 
-      col_induk = None
-      for c in candidates:
-        if c in df_pemetaan.columns:
-          col_induk = c
-          break
+    if not col_induk and len(df_pemetaan.columns) > 0:
+      col_induk = df_pemetaan.columns[0]
 
-      if not col_induk and len(df_pemetaan.columns) > 0:
-        col_induk = df_pemetaan.columns[0]
+    if col_induk:
+      val_induk = df_pemetaan[col_induk]
+      series_induk = (
+          val_induk.iloc[:, 0]
+          if isinstance(val_induk, pd.DataFrame)
+          else val_induk
+      )
 
-      if col_induk:
-        val_induk = df_pemetaan[col_induk]
-        series_induk = (
-            val_induk.iloc[:, 0]
-            if isinstance(val_induk, pd.DataFrame)
-            else val_induk
+      opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
+          [
+              str(x)
+              for x in series_induk.dropna().unique()
+              if str(x).strip() != ""
+          ]
+      )
+
+      col_filter1, col_filter2 = st.columns(2)
+
+      with col_filter1:
+        pilihan_induk = st.selectbox(
+            "📌 Pilih Karakteristik Rumah Tangga:", opsi_induk
         )
 
-        opsi_induk = ["-- Tampilkan Semua Barang --"] + sorted(
+      if pilihan_induk != "-- Tampilkan Semua Barang --":
+        record_search_to_sheets(pilihan_induk)
+
+      filtered_pemetaan = df_pemetaan.copy()
+      if pilihan_induk != "-- Tampilkan Semua Barang --":
+        val_filtered = filtered_pemetaan[col_induk]
+        s_filtered = (
+            val_filtered.iloc[:, 0]
+            if isinstance(val_filtered, pd.DataFrame)
+            else val_filtered
+        )
+        filtered_pemetaan = filtered_pemetaan[
+            s_filtered.astype(str) == pilihan_induk
+        ]
+
+      col_kat = next(
+          (
+              col
+              for col in ["Kategori Relasi", "Kategori"]
+              if col in df_pemetaan.columns
+          ),
+          None,
+      )
+
+      if col_kat:
+        val_kat = filtered_pemetaan[col_kat]
+        series_kat = (
+            val_kat.iloc[:, 0]
+            if isinstance(val_kat, pd.DataFrame)
+            else val_kat
+        )
+
+        opsi_kat = ["-- Semua Kategori --"] + sorted(
             [
                 str(x)
-                for x in series_induk.dropna().unique()
+                for x in series_kat.dropna().unique()
                 if str(x).strip() != ""
             ]
         )
 
-        col_filter1, col_filter2 = st.columns(2)
+        with col_filter2:
+          pilihan_kat = st.selectbox("🏷️ Filter Kategori Relasi:", opsi_kat)
 
-        with col_filter1:
-          pilihan_induk = st.selectbox(
-              "📌 Pilih Karakteristik Rumah Tangga:", opsi_induk
-          )
-
-        if pilihan_induk != "-- Tampilkan Semua Barang --":
-          record_search_to_sheets(pilihan_induk)
-
-        filtered_pemetaan = df_pemetaan.copy()
-        if pilihan_induk != "-- Tampilkan Semua Barang --":
-          val_filtered = filtered_pemetaan[col_induk]
-          s_filtered = (
-              val_filtered.iloc[:, 0]
-              if isinstance(val_filtered, pd.DataFrame)
-              else val_filtered
+        if pilihan_kat != "-- Semua Kategori --":
+          val_kat_filter = filtered_pemetaan[col_kat]
+          s_kat_filter = (
+              val_kat_filter.iloc[:, 0]
+              if isinstance(val_kat_filter, pd.DataFrame)
+              else val_kat_filter
           )
           filtered_pemetaan = filtered_pemetaan[
-              s_filtered.astype(str) == pilihan_induk
+              s_kat_filter.astype(str) == pilihan_kat
           ]
 
-        col_kat = next(
-            (
-                col
-                for col in ["Kategori Relasi", "Kategori"]
-                if col in df_pemetaan.columns
-            ),
-            None,
+      st.write(
+          f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran"
+          " turunan yang sesuai:"
+      )
+      df_pemetaan_display = filtered_pemetaan.drop(
+          columns=["Tingkat Kebutuhan"], errors="ignore"
+      )
+      st.dataframe(df_pemetaan_display, use_container_width=True)
+
+  else:
+    st.warning("Worksheet 'Database_Pemetaan' masih kosong.")
+
+except Exception as e:
+  st.error(f"Gagal memuat data dari worksheet 'Database_Pemetaan': {e}")
+
+if st.button("📚 Tampilkan Database Komoditas Lengkap", key="show_full_database"):
+  st.session_state["show_full_commodity_database"] = True
+
+if st.session_state.get("show_full_commodity_database", False):
+  st.subheader("📋 Database Komoditas Lengkap")
+  if st.button("Tutup Database Komoditas", key="hide_full_database"):
+    st.session_state["show_full_commodity_database"] = False
+
+  if st.session_state["show_full_commodity_database"]:
+    try:
+      df = load_data_with_file_cache("Database", "cache_database.csv")
+      df = format_code_columns(df)
+      df = arrange_columns(df)
+
+      top_logs = get_top_searches_from_sheets(5)
+      if top_logs:
+        st.markdown("🔥 **Top Komoditas Paling Sering Dicari Pengguna:**")
+        cols = st.columns(len(top_logs))
+        for idx, item in enumerate(top_logs):
+          label = f"📌 {item['Kata_Kunci']} ({item['Jumlah_Pencarian']}x)"
+          if cols[idx].button(label, key=f"btn_t1_{idx}"):
+            st.session_state["search_keyword"] = item["Kata_Kunci"]
+
+      with st.form(key="search_form"):
+        default_val = st.session_state.get("search_keyword", "")
+        keyword = st.text_input(
+            "Ketik kata kunci atau kode (tekan Enter atau klik Cari):",
+            value=default_val,
+            placeholder="Contoh: Kode, Nama, Kategori...",
         )
+        st.form_submit_button("🔍 Cari Data")
 
-        if col_kat:
-          val_kat = filtered_pemetaan[col_kat]
-          series_kat = (
-              val_kat.iloc[:, 0]
-              if isinstance(val_kat, pd.DataFrame)
-              else val_kat
+      if keyword:
+        record_search_to_sheets(keyword)
+        mask = pd.Series(False, index=df.index)
+        for col in df.columns:
+          mask |= (
+              df[col].astype(str).str.contains(keyword, case=False, na=False)
           )
-
-          opsi_kat = ["-- Semua Kategori --"] + sorted(
-              [
-                  str(x)
-                  for x in series_kat.dropna().unique()
-                  if str(x).strip() != ""
-              ]
-          )
-
-          with col_filter2:
-            pilihan_kat = st.selectbox("🏷️ Filter Kategori Relasi:", opsi_kat)
-
-          if pilihan_kat != "-- Semua Kategori --":
-            val_kat_filter = filtered_pemetaan[col_kat]
-            s_kat_filter = (
-                val_kat_filter.iloc[:, 0]
-                if isinstance(val_kat_filter, pd.DataFrame)
-                else val_kat_filter
-            )
-            filtered_pemetaan = filtered_pemetaan[
-                s_kat_filter.astype(str) == pilihan_kat
-            ]
-
+        filtered_df = df[mask]
         st.write(
-            f"Menampilkan **{len(filtered_pemetaan)}** daftar pengeluaran"
-            " turunan yang sesuai:"
+            f"Ditemukan **{len(filtered_df)}** data untuk kata kunci"
+            f" *'{keyword}'*:"
         )
-        df_pemetaan_display = filtered_pemetaan.drop(
-            columns=["Tingkat Kebutuhan"], errors="ignore"
-        )
-        st.dataframe(df_pemetaan_display, use_container_width=True)
-
-    else:
-      st.warning("Worksheet 'Database_Pemetaan' masih kosong.")
-
-  except Exception as e:
-    st.error(f"Gagal memuat data dari worksheet 'Database_Pemetaan': {e}")
+        st.dataframe(filtered_df, use_container_width=True)
+      else:
+        st.dataframe(df, use_container_width=True)
+    except Exception as e:
+      st.error(f"Gagal memuat data dari worksheet 'Database': {e}")
